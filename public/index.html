@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Food POS Tracker</title>
+
+<style>
+:root {
+    --bg: #f5f7fb;
+    --card: #ffffff;
+    --text: #222;
+    --primary: #2b6cff;
+}
+
+.dark {
+    --bg: #0f172a;
+    --card: #1e293b;
+    --text: #e2e8f0;
+    --primary: #3b82f6;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 20px;
+    transition: 0.3s;
+}
+
+h1, h2 {
+    text-align: center;
+}
+
+.section {
+    background: var(--card);
+    padding: 15px;
+    margin: 15px auto;
+    border-radius: 12px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+    max-width: 800px;
+}
+
+.item {
+    display: flex;
+    justify-content: space-between;
+    margin: 8px 0;
+    align-items: center;
+}
+
+button {
+    padding: 8px 16px;
+    border: none;
+    background: var(--primary);
+    color: white;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+button:hover {
+    opacity: 0.85;
+}
+
+input, select {
+    padding: 8px;
+    margin: 5px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    width: calc(100% - 20px);
+    box-sizing: border-box;
+}
+
+.toggle {
+    float: right;
+    margin-bottom: 10px;
+}
+
+/* Auth forms */
+#auth-container {
+    max-width: 400px;
+    margin: 50px auto;
+}
+
+.auth-toggle {
+    text-align: center;
+    margin-top: 10px;
+    cursor: pointer;
+    color: var(--primary);
+    text-decoration: underline;
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* User header */
+.user-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    max-width: 800px;
+    margin: 0 auto 15px auto;
+}
+
+</style>
+</head>
+
+<body>
+
+<button class="toggle" onclick="toggleTheme()">🌙 Toggle Theme</button>
+
+<!-- AUTHENTICATION SCREEN -->
+<div id="auth-container" class="section">
+    <h2 id="auth-title">Login</h2>
+    <form id="auth-form">
+        <input type="text" id="username" placeholder="Username" required>
+        <input type="password" id="password" placeholder="Password" required>
+        <button type="submit" style="width: 100%;">Submit</button>
+    </form>
+    <div class="auth-toggle" onclick="toggleAuthMode()">Don't have an account? Register here</div>
+</div>
+
+<!-- MAIN APP SCREEN -->
+<div id="app-container" class="hidden">
+    <div class="user-header">
+        <span id="user-display"></span>
+        <button onclick="logout()">Logout</button>
+    </div>
+
+    <h1>🍽 Food POS</h1>
+    <h3 id="date" style="text-align: center;"></h3>
+
+    <div class="section">
+        <h2>Add Item</h2>
+        <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+            <input id="nameInput" placeholder="Food name" style="flex: 1; min-width: 150px;">
+            <select id="category" style="flex: 1; min-width: 150px;">
+                <option>Veg</option>
+                <option>Non-Veg</option>
+                <option>Beverages</option>
+                <option>Snacks</option>
+            </select>
+            <input id="spInput" type="number" placeholder="Selling Price" style="flex: 1; min-width: 120px;">
+            <input id="cpInput" type="number" placeholder="Cost Price" style="flex: 1; min-width: 120px;">
+            <button onclick="addItem()" style="flex: 1; min-width: 100px;">Save</button>
+        </div>
+    </div>
+
+    <div id="menu"></div>
+
+    <div class="section">
+        <h2>Current Order</h2>
+        <div id="cart"></div>
+        <h3 id="orderTotal"></h3>
+        <button onclick="submitOrder()">Submit Order</button>
+    </div>
+
+    <div class="section">
+        <h2>Daily Summary</h2>
+        <div id="summary"></div>
+        <h3 id="totalProfit"></h3>
+    </div>
+
+    <div class="section">
+        <h2>🔥 Top Selling</h2>
+        <div id="ranking"></div>
+    </div>
+
+    <div class="section">
+        <h2>📊 Last 30 Days Profit</h2>
+        <div id="monthly"></div>
+    </div>
+</div>
+
+<script>
+// --- STATE ---
+let foodItems = [];
+let cart = {};
+let dailyTotals = {};
+
+let token = localStorage.getItem('pos_token');
+let currentUsername = localStorage.getItem('pos_username');
+let isLoginMode = true;
+
+const today = new Date().toISOString().split('T')[0];
+document.getElementById("date").innerText = "Date: " + today;
+
+// --- INITIALIZATION ---
+window.onload = () => {
+    if (token) {
+        showApp();
+    } else {
+        showAuth();
+    }
+};
+
+// --- AUTHENTICATION LOGIC ---
+function toggleAuthMode() {
+    isLoginMode = !isLoginMode;
+    document.getElementById("auth-title").innerText = isLoginMode ? "Login" : "Register";
+    document.querySelector(".auth-toggle").innerText = isLoginMode ? "Don't have an account? Register here" : "Already have an account? Login here";
+}
+
+document.getElementById("auth-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const username = document.getElementById("username").value.trim();
+    const password = document.getElementById("password").value.trim();
+
+    const endpoint = isLoginMode ? '/api/auth/login' : '/api/auth/register';
+
+    try {
+        const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+            alert(data.msg || "Authentication failed");
+            return;
+        }
+
+        token = data.token;
+        currentUsername = data.username;
+        localStorage.setItem('pos_token', token);
+        localStorage.setItem('pos_username', currentUsername);
+        
+        showApp();
+    } catch (err) {
+        console.error("Auth error:", err);
+        alert("Server error. Please check if the backend is running.");
+    }
+});
+
+function logout() {
+    token = null;
+    currentUsername = null;
+    localStorage.removeItem('pos_token');
+    localStorage.removeItem('pos_username');
+    foodItems = [];
+    cart = {};
+    dailyTotals = {};
+    showAuth();
+}
+
+function showAuth() {
+    document.getElementById("auth-container").classList.remove("hidden");
+    document.getElementById("app-container").classList.add("hidden");
+}
+
+async function showApp() {
+    document.getElementById("auth-container").classList.add("hidden");
+    document.getElementById("app-container").classList.remove("hidden");
+    document.getElementById("user-display").innerText = "Welcome, " + currentUsername;
+    
+    // Load data from backend
+    await loadTodayData();
+    renderMenu();
+    updateSummary();
+}
+
+// --- DATA LOGIC (BACKEND INTEGRATION) ---
+async function loadTodayData() {
+    try {
+        const res = await fetch(`/api/data/${today}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (res.status === 401) {
+            logout(); // Token expired or invalid
+            return;
+        }
+
+        const data = await res.json();
+        foodItems = data.foodItems || [];
+        dailyTotals = data.dailyTotals || {};
+    } catch (err) {
+        console.error("Error loading data:", err);
+        alert("Failed to load today's data");
+    }
+}
+
+async function saveToday() {
+    try {
+        const res = await fetch(`/api/data/${today}`, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ foodItems, dailyTotals })
+        });
+
+        if (res.status === 401) {
+            logout();
+        }
+    } catch (err) {
+        console.error("Error saving data:", err);
+        alert("Failed to save data. Changes may be lost.");
+    }
+}
+
+// --- THEME ---
+function toggleTheme() {
+    document.body.classList.toggle("dark");
+}
+
+// --- APP LOGIC (Original with minor tweaks) ---
+async function addItem() {
+    let name = document.getElementById("nameInput").value.trim();
+    let cat = document.getElementById("category").value;
+    let sp = parseFloat(document.getElementById("spInput").value);
+    let cp = parseFloat(document.getElementById("cpInput").value);
+
+    if (!name || isNaN(sp) || isNaN(cp)) return alert("Invalid input");
+
+    let existing = foodItems.find(f => f.name === name);
+
+    if (existing) {
+        existing.category = cat;
+        existing.sellingPrice = sp;
+        existing.costPrice = cp;
+    } else {
+        foodItems.push({ name, category: cat, sellingPrice: sp, costPrice: cp });
+    }
+
+    document.getElementById("nameInput").value = "";
+    document.getElementById("spInput").value = "";
+    document.getElementById("cpInput").value = "";
+
+    renderMenu();
+    await saveToday(); // Save item immediately
+}
+
+async function removeItem(name) {
+    if(!confirm("Are you sure you want to remove '" + name + "' from the menu?")) return;
+    foodItems = foodItems.filter(f => f.name !== name);
+    delete cart[name]; // Remove from current cart if it's there
+    renderMenu();
+    await saveToday(); // Save the updated list to the database
+}
+
+function renderMenu() {
+    let menu = document.getElementById("menu");
+    menu.innerHTML = "";
+
+    ["Veg","Non-Veg","Beverages","Snacks"].forEach(cat => {
+        let itemsInCat = foodItems.filter(i => i.category === cat);
+        if (itemsInCat.length === 0) return; // Don't show empty categories
+
+        let sec = document.createElement("div");
+        sec.className = "section";
+        sec.innerHTML = `<h2>${cat}</h2>`;
+
+        itemsInCat.sort((a,b) => a.name.localeCompare(b.name)).forEach(item => {
+            sec.innerHTML += `
+            <div class="item">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <button onclick="removeItem('${item.name}')" style="background: #ef4444; padding: 4px 8px; font-size: 12px; border-radius: 4px;" title="Remove Item">✖</button>
+                    ${item.name} (₹${item.sellingPrice})
+                </div>
+                <div>
+                    <button onclick="change('${item.name}',-1)">-</button>
+                    <span style="margin: 0 10px; font-weight: bold;">${cart[item.name] || 0}</span>
+                    <button onclick="change('${item.name}',1)">+</button>
+                </div>
+            </div>`;
+        });
+
+        menu.appendChild(sec);
+    });
+
+    updateCart();
+}
+
+function change(name, val) {
+    if (!cart[name]) cart[name] = 0;
+    cart[name] += val;
+    if (cart[name] <= 0) delete cart[name];
+    renderMenu();
+}
+
+function updateCart() {
+    let div = document.getElementById("cart");
+    div.innerHTML = "";
+    let total = 0;
+
+    for (let n in cart) {
+        let item = foodItems.find(f => f.name === n);
+        if(!item) continue;
+        let qty = cart[n];
+        let profit = (item.sellingPrice - item.costPrice) * qty;
+        total += profit;
+        div.innerHTML += `<div>${n} x ${qty} &rarr; ₹${profit} profit</div>`;
+    }
+
+    document.getElementById("orderTotal").innerText = "Order Profit: ₹" + total;
+}
+
+async function submitOrder() {
+    if (Object.keys(cart).length === 0) return alert("Cart is empty");
+
+    for (let n in cart) {
+        let item = foodItems.find(f => f.name === n);
+        if (!item) continue;
+
+        if (!dailyTotals[n]) dailyTotals[n] = { quantity: 0, profit: 0 };
+
+        let qty = cart[n];
+        let p = (item.sellingPrice - item.costPrice) * qty;
+
+        dailyTotals[n].quantity += qty;
+        dailyTotals[n].profit += p;
+    }
+
+    cart = {};
+    await saveToday();
+    renderMenu();
+    updateSummary();
+}
+
+function updateSummary() {
+    let sum = document.getElementById("summary");
+    sum.innerHTML = "";
+    let total = 0;
+
+    for (let n in dailyTotals) {
+        let d = dailyTotals[n];
+        total += d.profit;
+        sum.innerHTML += `<div>${n}: ${d.quantity} &rarr; ₹${d.profit}</div>`;
+    }
+
+    document.getElementById("totalProfit").innerText = "Total Profit: ₹" + total;
+    updateRanking();
+    updateMonthly();
+}
+
+function updateRanking() {
+    let r = document.getElementById("ranking");
+    let sorted = Object.entries(dailyTotals)
+        .sort((a,b) => b[1].quantity - a[1].quantity);
+
+    r.innerHTML = "";
+    if (sorted.length === 0) {
+        r.innerHTML = "No sales yet today.";
+    }
+    sorted.forEach((x, i) => {
+        r.innerHTML += `<div>${i+1}. ${x[0]} - ${x[1].quantity} sold</div>`;
+    });
+}
+
+// 📊 LAST 30 DAYS (Backend version)
+async function updateMonthly() {
+    let div = document.getElementById("monthly");
+    div.innerHTML = "Loading...";
+    let total = 0;
+
+    try {
+        const res = await fetch('/api/data/summary/monthly', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (res.status === 401) {
+            logout();
+            return;
+        }
+
+        const records = await res.json();
+        div.innerHTML = "";
+
+        if (records.length === 0) {
+            div.innerHTML = "No data for the last 30 days.";
+            return;
+        }
+
+        // Group by date and calculate total profit per day
+        records.forEach(record => {
+            let dayTotal = 0;
+            for (let item in record.dailyTotals) {
+                dayTotal += record.dailyTotals[item].profit;
+            }
+            total += dayTotal;
+            div.innerHTML += `<div>${record.date}: ₹${dayTotal}</div>`;
+        });
+
+        div.innerHTML += `<h3 style="margin-top: 10px;">Total (30 days): ₹${total}</h3>`;
+    } catch (err) {
+        console.error("Error loading monthly summary:", err);
+        div.innerHTML = "Failed to load summary.";
+    }
+}
+</script>
+
+</body>
+</html>
